@@ -1,124 +1,104 @@
-# PyFlowML 🚀
+<div align="center">
+  <h1>🚀 PyFlowML</h1>
+  <p><b>A completely automated, zero-code Machine Learning library that handles your entire data lifecycle instantly from your terminal.</b></p>
 
-**A scalable, intelligent Python ML library for the full machine learning lifecycle.**
+  [![PyPI Version](https://img.shields.io/pypi/v/pyflowml.svg)](https://pypi.org/project/pyflowml/)
+  [![Python Versions](https://img.shields.io/pypi/pyversions/pyflowml.svg)](https://pypi.org/project/pyflowml/)
+  [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+  [![Downloads](https://static.pepy.tech/badge/pyflowml)](https://pepy.tech/project/pyflowml)
 
-PyFlowML handles everything from raw, potentially large data to a trained, evaluated, and saved model — automatically.
+</div>
 
 ---
 
-## Features
+## ⚡ Why PyFlowML?
+Stop manually importing Scikit-Learn tools, cleaning datasets, writing loops, and crashing your Jupyter Notebooks. **PyFlowML** automatically:
+1. Optimizes your dataset memory (saving up to 80% RAM).
+2. Cleans text outliers, NaNs, and duplicates automatically.
+3. Spawns an intelligently parallelized **AutoML** Engine.
+4. Searches across XGBoost, LightGBM, Random Forests, SVM, etc.
+5. Generates a stunning dark-mode Visual Dashboard!
+
+---
+
+## 🛠️ Installation
+
+Simply install the heavily optimized library via pip:
+
+```bash
+pip install pyflowml
+```
+
+---
+
+## 🔥 Quickstart: The Magic CLI
+
+The easiest way to use PyFlowML is right from your terminal without writing a single line of code! Just navigate to the folder with your CSV data and type:
+
+```bash
+pyflowml
+```
+
+Our beautiful interactive menu will guide you through picking your target column, selecting a time budget, and automating the rest!
+
+### Example Terminal Output:
+```text
+  ✔  Loaded  2,000 rows × 17 columns
+  🔍  Profiling dataset…
+  📦  Optimising memory… Memory: 1.3 MB → 0.2 MB (saved 87%)
+  🧹  Cleaning data…
+  🤖  Training AutoML models (budget=60s)…
+  ✅  Best: KNN | f1=0.5098
+  📈  Generating visualisation dashboard…
+```
+
+---
+
+## 💻 Zero-Boilerplate Code (Pro Mode)
+
+If you strictly want to integrate PyFlowML into your Python backend or Jupyter Notebooks, it's as simple as three lines of code:
+
+### AutoML Classification
+```python
+import pandas as pd
+from pyflowml.models.auto import AutoClassifier
+
+# 1. Load Data
+df = pd.read_csv("my_dataset.csv")
+X_train = df.drop(columns=["target"])
+y_train = df["target"]
+
+# 2. Launch your AutoML Engine!
+engine = AutoClassifier(metric="f1", time_limit=60)
+engine.fit(X_train, y_train)
+
+# 3. View Results
+print(f"🥇 Best Model: {engine.best_model_name_}")
+engine.leaderboard()
+```
+
+*(For Regression, simply swap `AutoClassifier` for `AutoRegressor`!)*
+
+---
+
+## 🌟 Feature Breakdown
 
 | Feature | Description |
 |---|---|
-| 🧠 **AutoML** | Trains multiple models in parallel, picks the best automatically |
-| 📊 **Data Profiler** | Detects problem type, missing data, skewness, and outliers |
-| ⚙️ **Smart Pipeline** | Cached preprocessing: no redundant recomputation |
-| 📦 **Memory Optimizer** | Downcasts dtypes — saves 40–60% RAM |
-| 🚀 **Parallel Training** | All models train simultaneously via `joblib` |
-| ⏱️ **Time Budget** | `AutoClassifier(time_limit=60)` stops when budget exceeded |
-| 📈 **Visualization** | Dark-themed ROC, confusion matrix, learning curves |
-| 💾 **Versioned Saves** | Models saved with metadata (date, metrics, features) |
-| 📝 **NLP Utilities** | TF-IDF, Bag-of-Words, stopword removal, lemmatization |
-| 📡 **Monitoring** | Per-step time and memory tracking |
+| 🧠 **AutoML Search** | Safely threads 6+ state-of-the-art architectures without deadlocking |
+| 📊 **Intelligent Profiler** | Detects classification vs regression & profiles correlation/skewness |
+| ⚙️ **Smart Pipeline** | Auto Label-Encoding & OneHot features instantly |
+| 📦 **Memory Optimizer** | Downcasts int64/float64 seamlessly for massive datasets |
+| ⏱️ **Hard Deadline** | `time_limit=60` strictly stops processing to save compute costs |
+| 📈 **One-Figure Dashboard** | Dark-themed ROC, Confusion Matrix, & Leaderboards plotted entirely in one frame! |
+| 💾 **Safe Versioning** | Instantly saves your `.pkl` and `.json` metadata on successful train |
 
 ---
 
-## Installation
+## 🤝 Contributing
 
-```bash
-pip install -e .
-```
+We welcome contributions! Have an idea to make PyFlowML faster? Open an Issue or submit a Pull Request.
 
-Or install from requirements:
+## 📄 License
 
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## Quickstart
-
-### One-line AutoML Engine
-
-```python
-import pandas as pd
-from pyflowml.core.engine import PyFlowEngine
-
-df = pd.read_csv("titanic.csv")
-engine = PyFlowEngine(df, target="Survived", time_limit=120)
-engine.run()
-```
-
-### Manual Step-by-Step
-
-```python
-from pyflowml.data import DataLoader, DataCleaner, DataSplitter, MemoryOptimizer
-from pyflowml.preprocessing import SmartPipeline
-from pyflowml.models import AutoClassifier
-from pyflowml.evaluation import Reporter
-from pyflowml.visualization import ModelViz
-from pyflowml.utils import ModelSaver
-
-# Load & optimize
-df = DataLoader.from_csv("data.csv")
-df = MemoryOptimizer.reduce(df)
-
-# Clean
-df = DataCleaner(df).handle_nulls().remove_outliers().remove_duplicates().result()
-
-# Split
-X_train, X_test, y_train, y_test = DataSplitter(df, target="label").split()
-
-# Preprocess
-pipe = SmartPipeline()
-X_train = pipe.fit_transform(X_train, y_train)
-X_test  = pipe.transform(X_test)
-
-# Train best model
-clf = AutoClassifier(metric="f1", time_limit=60)
-clf.fit(X_train, y_train)
-clf.leaderboard()
-
-# Evaluate
-Reporter.classification(clf, X_test, y_test)
-
-# Visualize
-ModelViz.confusion_matrix(clf, X_test, y_test)
-ModelViz.roc_curve(clf, X_test, y_test)
-
-# Save
-ModelSaver.save(clf, "my_model", metadata={"f1": clf.best_score_})
-```
-
----
-
-## Modules
-
-```
-pyflowml/
-├── core/          # Engine, Profiler, Optimizer (brain of the system)
-├── data/          # DataLoader, DataCleaner, DataSplitter, MemoryOptimizer
-├── preprocessing/ # Scaler, FeatureSelector, SmartPipeline
-├── models/        # AutoClassifier, AutoRegressor, AutoClusterer
-├── evaluation/    # Reporter, CrossValidator
-├── tuning/        # HyperTuner
-├── visualization/ # Plotter, ModelViz
-├── monitoring/    # StepTracker, Logger
-├── utils/         # ModelSaver
-└── nlp/           # TextCleaner, Vectorizer
-```
-
----
-
-## Running Tests
-
-```bash
-pytest tests/ -v
-```
-
----
-
-## License
-
-MIT
+This open-source project is heavily protected under the **MIT License**.
