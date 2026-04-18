@@ -1,0 +1,13 @@
+{
+  "name": "ai_job_impact_classification_model",
+  "saved_at": "20260418_134034",
+  "model_type": "KNeighborsClassifier",
+  "file": "ai_job_impact.csv",
+  "target": "Remote_Work",
+  "problem_type": "classification",
+  "metric": "f1",
+  "best_model": "KNN",
+  "score": 0.5098039215686274,
+  "train_rows": 1600,
+  "test_rows": 400
+}

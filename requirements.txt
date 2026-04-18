@@ -1,0 +1,30 @@
+# Core
+numpy>=1.21.0
+pandas>=1.3.0
+scikit-learn>=1.0.0
+
+# Boosting
+xgboost>=1.6.0
+lightgbm>=3.3.0
+
+# Parallelism & Caching
+joblib>=1.1.0
+
+# Large Data
+dask[dataframe]>=2022.1.0
+
+# Visualization
+matplotlib>=3.4.0
+seaborn>=0.11.0
+
+# Monitoring
+psutil>=5.8.0
+
+# Progress
+tqdm>=4.62.0
+
+# NLP
+nltk>=3.6.0
+
+# Testing
+pytest>=7.0.0

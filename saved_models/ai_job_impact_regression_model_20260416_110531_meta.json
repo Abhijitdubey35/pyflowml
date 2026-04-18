@@ -1,0 +1,13 @@
+{
+  "name": "ai_job_impact_regression_model",
+  "saved_at": "20260416_110531",
+  "model_type": "GradientBoostingRegressor",
+  "file": "ai_job_impact.csv",
+  "target": "Salary_After_AI",
+  "problem_type": "regression",
+  "metric": "r2",
+  "best_model": "GradientBoosting",
+  "score": 0.9015267849412603,
+  "train_rows": 1600,
+  "test_rows": 400
+}

@@ -1,0 +1,2 @@
+[console_scripts]
+pyflowml = pyflowml.cli:main

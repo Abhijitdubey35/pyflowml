@@ -1,0 +1,13 @@
+{
+  "name": "Obesity_regression_model",
+  "saved_at": "20260417_200634",
+  "model_type": "XGBRegressor",
+  "file": "Obesity.csv",
+  "target": "Age",
+  "problem_type": "regression",
+  "metric": "mae",
+  "best_model": "XGBoost",
+  "score": -1.405584454536438,
+  "train_rows": 1100,
+  "test_rows": 276
+}

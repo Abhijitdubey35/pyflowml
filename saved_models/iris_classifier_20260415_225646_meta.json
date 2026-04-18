@@ -1,0 +1,13 @@
+{
+  "name": "iris_classifier",
+  "saved_at": "20260415_225646",
+  "model_type": "GradientBoostingClassifier",
+  "dataset": "iris",
+  "f1_score": 0.8745098039215686,
+  "features": [
+    "sepal length (cm)",
+    "sepal width (cm)",
+    "petal length (cm)",
+    "petal width (cm)"
+  ]
+}

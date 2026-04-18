@@ -1,0 +1,13 @@
+{
+  "name": "Obesity_regression_model",
+  "saved_at": "20260415_233449",
+  "model_type": "RandomForestRegressor",
+  "file": "Obesity.csv",
+  "target": "FAF",
+  "problem_type": "regression",
+  "metric": "rmse",
+  "best_model": "RandomForest",
+  "score": -0.6276830546801139,
+  "train_rows": 1100,
+  "test_rows": 276
+}
