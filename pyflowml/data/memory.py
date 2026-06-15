@@ -1,6 +1,7 @@
 """
 MemoryOptimizer — Reduces DataFrame memory usage by downcasting dtypes.
-Typically saves 40-60% of memory with no loss of information.
+Typically saves 40-60% of memory. Integer downcasting is lossless; float
+columns are downcast to float32, which trades a little precision for memory.
 """
 
 import numpy as np

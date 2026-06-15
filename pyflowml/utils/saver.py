@@ -26,16 +26,19 @@ class ModelSaver:
 
     @staticmethod
     def save(model, name: str, directory: str = DEFAULT_DIR,
-             metadata: dict = None, use_joblib: bool = True) -> str:
+             metadata: dict = None, pipeline=None, use_joblib: bool = True) -> str:
         """
         Save a model with versioned filename and optional metadata.
 
         Parameters
         ----------
-        model     : Trained model object
+        model     : Trained model object (e.g. AutoClassifier/AutoRegressor)
         name      : Base name for the model file
         directory : Output directory
         metadata  : Dict of extra info (metrics, features, etc.)
+        pipeline  : Optional fitted preprocessing pipeline. When given, it is
+                    bundled with the model so the artifact can predict directly
+                    from raw data (use ``ModelSaver.predict``).
         use_joblib: Use joblib (True) or pickle (False)
 
         Returns
@@ -47,20 +50,29 @@ class ModelSaver:
         filename = f"{name}_{date_str}.pkl"
         filepath = os.path.join(directory, filename)
 
-        # Save model
-        inner = getattr(model, "best_model_", model)
+        # Persist the FULL wrapper, not just best_model_, so the fitted label
+        # encoder travels with it (otherwise reloaded classifiers return raw
+        # encoded integers and can't reproduce predictions). When a fitted
+        # pipeline is supplied, bundle both into one self-contained artifact.
+        if pipeline is not None:
+            payload = {"__pyflow_bundle__": True, "pipeline": pipeline, "model": model}
+        else:
+            payload = model
+
         if use_joblib:
-            joblib.dump(inner, filepath)
+            joblib.dump(payload, filepath)
         else:
             with open(filepath, "wb") as f:
-                pickle.dump(inner, f)
+                pickle.dump(payload, f)
 
         # Save metadata
+        inner = getattr(model, "best_model_", model)
         if metadata is not None:
             meta = {
                 "name": name,
                 "saved_at": date_str,
                 "model_type": type(inner).__name__,
+                "bundled_pipeline": pipeline is not None,
                 **metadata,
             }
             meta_path = filepath.replace(".pkl", "_meta.json")
@@ -104,6 +116,22 @@ class ModelSaver:
             logger.info(f"Metadata: {meta}")
 
         return model
+
+    @staticmethod
+    def predict(payload, X):
+        """
+        Predict from a loaded payload, whether it is a bare model wrapper or a
+        bundle saved with a preprocessing pipeline.
+
+        Example
+        -------
+        >>> bundle = ModelSaver.load("saved_models/my_model_20260615.pkl")
+        >>> preds = ModelSaver.predict(bundle, raw_df)
+        """
+        if isinstance(payload, dict) and payload.get("__pyflow_bundle__"):
+            X = payload["pipeline"].transform(X)
+            return payload["model"].predict(X)
+        return payload.predict(X)
 
     @staticmethod
     def list_saved(directory: str = DEFAULT_DIR) -> list:

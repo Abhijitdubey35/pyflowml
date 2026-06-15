@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyflowml"
-version = "1.0.4"
+version = "1.0.5"
 description = "AutoML library for the full ML lifecycle — train, evaluate, visualise, and save"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -65,11 +65,20 @@ dev = [
 pyflowml = "pyflowml.cli:main"
 
 [project.urls]
-Homepage    = "https://github.com/yourusername/pyflowml"
-Repository  = "https://github.com/yourusername/pyflowml"
-"Bug Tracker" = "https://github.com/yourusername/pyflowml/issues"
+Homepage    = "https://github.com/Abhijitdubey35/pyflowml"
+Repository  = "https://github.com/Abhijitdubey35/pyflowml"
+"Bug Tracker" = "https://github.com/Abhijitdubey35/pyflowml/issues"
+
+[tool.setuptools]
+# Only ship files we explicitly list below — keeps stray CSVs and other
+# artifacts out of the wheel.
+include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["pyflowml*"]
 exclude = ["tests*", "examples*", "saved_models*", "pyflowml_cache*"]
+
+[tool.setuptools.package-data]
+# Ship the typing marker so downstream type checkers honour our annotations.
+pyflowml = ["py.typed"]

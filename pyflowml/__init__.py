@@ -27,7 +27,7 @@ from pyflowml.visualization.model_viz import ModelViz
 
 from pyflowml.utils.saver import ModelSaver
 
-__version__ = "1.0.4"
+__version__ = "1.0.5"
 __author__ = "PyFlowML Contributors"
 
 __all__ = [

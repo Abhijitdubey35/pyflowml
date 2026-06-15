@@ -67,15 +67,17 @@ class ModelOptimizer:
         # Add boosting if available
         if HAS_XGB:
             if self.problem_type == "classification":
+                # No early_stopping_rounds / use_label_encoder: both are
+                # version-fragile in the sklearn API (early stopping needs an
+                # eval_set at fit time, and use_label_encoder was removed in
+                # xgboost 2.0). Models train to n_estimators within the budget.
                 pool["XGBoost"] = lambda: XGBClassifier(
-                    n_estimators=200, use_label_encoder=False,
-                    eval_metric="logloss", random_state=42,
-                    early_stopping_rounds=10, n_jobs=1
+                    n_estimators=200, eval_metric="logloss",
+                    random_state=42, n_jobs=1
                 )
             else:
                 pool["XGBoost"] = lambda: XGBRegressor(
-                    n_estimators=200, random_state=42,
-                    early_stopping_rounds=10, n_jobs=1
+                    n_estimators=200, random_state=42, n_jobs=1
                 )
 
         if HAS_LGBM:

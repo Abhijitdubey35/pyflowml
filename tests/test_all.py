@@ -143,6 +143,36 @@ class TestFeatureSelector:
         assert result.shape[1] < df.shape[1]
 
 
+class TestSmartPipeline:
+    def test_consistent_categorical_encoding(self):
+        """Train and test must share the SAME category→code mapping."""
+        from pyflowml.preprocessing.pipeline import SmartPipeline
+        train = pd.DataFrame({
+            "city": ["NY", "LA", "SF", "NY", "LA", "SF"],
+            "val":  [1.0, 2.0, 3.0, 1.5, 2.5, 3.5],
+        })
+        test = pd.DataFrame({
+            "city": ["LA", "NY", "SF"],
+            "val":  [2.0, 1.0, 3.0],
+        })
+        pipe = SmartPipeline(scaler_method="standard", selector_method="all")
+        Xtr = pipe.fit_transform(train)
+        Xte = pipe.transform(test)
+        train_map = dict(zip(train["city"], Xtr["city"]))
+        for city, code in zip(test["city"], Xte["city"]):
+            assert train_map[city] == code
+
+    def test_unseen_category_is_safe(self):
+        """Categories unseen during fit encode to -1 instead of crashing."""
+        from pyflowml.preprocessing.pipeline import SmartPipeline
+        train = pd.DataFrame({"c": ["a", "b", "a", "b"], "x": [1.0, 2.0, 3.0, 4.0]})
+        test = pd.DataFrame({"c": ["a", "zzz"], "x": [1.0, 2.0]})
+        pipe = SmartPipeline(selector_method="all")
+        pipe.fit_transform(train)
+        out = pipe.transform(test)
+        assert out["c"].iloc[1] == -1
+
+
 # ─── Model Tests ───────────────────────────────────────────────────────────────
 
 class TestAutoClassifier:
@@ -175,6 +205,65 @@ class TestAutoRegressor:
         reg.fit(X_train, y_train)
         preds = reg.predict(X_test)
         assert len(preds) == len(y_test)
+
+
+class TestBudget:
+    def test_tiny_budget_still_returns_model(self, clf_df):
+        """Admission control must never leave .fit() without a usable model."""
+        from pyflowml.data.splitter import DataSplitter
+        from pyflowml.models.auto import AutoClassifier
+        X_train, X_test, y_train, y_test = DataSplitter(clf_df, target="target").split()
+        clf = AutoClassifier(metric="accuracy", time_limit=1, random_state=0)
+        clf.fit(X_train, y_train)
+        assert clf.best_model_ is not None
+        assert len(clf._leaderboard) >= 1
+        assert len(clf.predict(X_test)) == len(y_test)
+
+
+class TestConsole:
+    def test_ensure_utf8_console_is_idempotent_and_safe(self):
+        from pyflowml.utils.console import ensure_utf8_console
+        ensure_utf8_console()
+        ensure_utf8_console()  # second call must be a no-op and never raise
+
+
+class TestCLISubcommands:
+    def test_clean_writes_csv(self, tmp_path, dirty_df):
+        import pyflowml.cli as cli
+        src = tmp_path / "dirty.csv"
+        dirty_df.to_csv(src, index=False)
+        out = tmp_path / "clean.csv"
+        cli.main(["clean", str(src), "-o", str(out)])
+        assert out.exists()
+        cleaned = pd.read_csv(out)
+        assert cleaned.isna().sum().sum() == 0   # nulls handled on export
+
+    def test_predict_writes_predictions(self, tmp_path, clf_df):
+        import pyflowml.cli as cli
+        from pyflowml.preprocessing.pipeline import SmartPipeline
+        from pyflowml.models.auto import AutoClassifier
+        from pyflowml.utils.saver import ModelSaver
+        X = clf_df.drop(columns=["target"]); y = clf_df["target"]
+        pipe = SmartPipeline(selector_method="all")
+        Xt = pipe.fit_transform(X, y)
+        clf = AutoClassifier(metric="accuracy", time_limit=1, random_state=0)
+        clf.fit(Xt, y)
+        model_path = ModelSaver.save(clf, "m", directory=str(tmp_path), pipeline=pipe)
+
+        newcsv = tmp_path / "new.csv"; X.head(5).to_csv(newcsv, index=False)
+        out = tmp_path / "preds.csv"
+        cli.main(["predict", model_path, str(newcsv), "-o", str(out)])
+        assert out.exists()
+        preds = pd.read_csv(out)
+        assert "prediction" in preds.columns and len(preds) == 5
+
+    def test_bare_invocation_routes_to_full_pipeline(self, monkeypatch):
+        """`pyflowml` with no sub-command must hit the interactive pipeline path."""
+        import pyflowml.cli as cli
+        called = {}
+        monkeypatch.setattr(cli, "_interactive_pipeline", lambda argv: called.setdefault("argv", argv))
+        cli.main([])
+        assert called.get("argv") == []
 
 
 # ─── Evaluation Tests ──────────────────────────────────────────────────────────

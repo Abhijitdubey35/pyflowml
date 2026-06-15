@@ -28,9 +28,11 @@ from sklearn.metrics import silhouette_score
 from pyflowml.core.optimizer import ModelOptimizer
 from pyflowml.monitoring.logger import get_logger
 from pyflowml.monitoring.tracker import StepTracker
+from pyflowml.utils.console import ensure_utf8_console
 
 logger = get_logger("AutoML")
-warnings.filterwarnings("ignore")
+# Warnings are suppressed locally around model fits (see _train_and_score),
+# never globally — a library must not mute warnings in the user's process.
 
 
 # ─── Hyper-parameter search spaces ───────────────────────────────────────────
@@ -138,13 +140,10 @@ def _train_and_score(name, model, X_train, y_train, X_val, y_val,
         return name, None, -np.inf, 0.0
     t0 = time.time()
     try:
-        # Fit with early stopping for XGB/LGBM if val set provided
-        if hasattr(model, "early_stopping_rounds") and X_val is not None:
-            model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
-        else:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # mute convergence noise locally only
             model.fit(X_train, y_train)
-
-        preds = model.predict(X_val)
+            preds = model.predict(X_val)
         score = _compute_metric(metric, y_val, preds, model, X_val)
         elapsed = time.time() - t0
         return name, model, score, elapsed
@@ -202,6 +201,28 @@ def _compute_metric(metric: str, y_true, y_pred, model, X_val):
         raise ValueError(f"Unknown metric: {metric}")
 
 
+# ─── Time-budget cost estimation ─────────────────────────────────────────────
+# Rough solo fit time (seconds) at ~1,000 training rows. Used only to decide
+# whether a model can plausibly finish within the *remaining* budget before we
+# have observed its real time. Deliberately conservative for slow families so a
+# tight budget does not get blown by, e.g., multiclass GradientBoosting.
+_APRIORI_COST = {
+    "Ridge": 0.2, "Lasso": 0.3, "LogisticRegression": 0.5,
+    "KNN": 0.5, "LightGBM": 1.5, "XGBoost": 2.0,
+    "RandomForest": 2.0, "SVM": 3.0, "SVR": 3.0,
+    "GradientBoosting": 6.0,
+}
+
+
+def _estimate_cost(name: str, n_samples: int, n_classes: int = 1) -> float:
+    """Conservative estimate of one model's fit time for admission control."""
+    cost = _APRIORI_COST.get(name, 2.0) * max(1.0, n_samples / 1000.0)
+    if name == "GradientBoosting":
+        # sklearn fits one boosting series per class for multiclass targets.
+        cost *= max(1, n_classes)
+    return cost
+
+
 class AutoClassifier:
     """
     Automatically trains multiple classifiers and selects the best one.
@@ -223,11 +244,13 @@ class AutoClassifier:
     """
 
     def __init__(self, metric: str = "f1", time_limit: int = 120,
-                 dataset_tier: str = "auto", n_jobs: int = -1):
+                 dataset_tier: str = "auto", n_jobs: int = -1,
+                 random_state: int = 42):
         self.metric = metric
         self.time_limit = time_limit
         self.dataset_tier = dataset_tier
         self.n_jobs = n_jobs
+        self.random_state = random_state
         self.best_model_ = None
         self.best_model_name_ = None
         self.best_score_ = -np.inf
@@ -235,6 +258,10 @@ class AutoClassifier:
 
     def fit(self, X_train, y_train, X_val=None, y_val=None):
         """Train models iteratively using random search until the time budget is exhausted."""
+        ensure_utf8_console()
+        if self.random_state is not None:
+            random.seed(self.random_state)
+            np.random.seed(self.random_state)
         n_samples = len(X_train)
         tier = self.dataset_tier
         if tier == "auto":
@@ -256,7 +283,7 @@ class AutoClassifier:
         if X_val is None:
             from sklearn.model_selection import train_test_split
             X_train, X_val, y_train_enc, y_val_enc = train_test_split(
-                X_train, y_encoded, test_size=0.2, random_state=42,
+                X_train, y_encoded, test_size=0.2, random_state=self.random_state,
                 stratify=y_encoded if y_encoded.nunique() <= 20 else None
             )
         else:
@@ -267,8 +294,11 @@ class AutoClassifier:
         start_time = time.time()
         deadline = start_time + self.time_limit
         param_space = _CLASSIFICATION_PARAM_SPACE
+        n_fit = len(X_train)                       # rows models actually train on
+        n_classes = len(self.label_encoder_.classes_)
+        model_times: dict = {}                     # name -> last observed real fit time
 
-        best_per_model: dict = {}   # name -> (model, score)
+        best_per_model: dict = {}   # name -> (score, model, fit_time)
         iteration = 0
 
         logger.info(f"  Searching {len(base_candidates)} models via random hyper-param search (budget={self.time_limit}s)...")
@@ -278,15 +308,31 @@ class AutoClassifier:
             iteration += 1
             elapsed = time.time() - start_time
             _print_progress(elapsed, self.time_limit, iteration, self.best_score_, self.metric)
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
 
-            # Build fresh candidates with random hyper-params
+            # Admission control: only launch models expected to finish within the
+            # remaining budget (learned time if seen, else a conservative estimate).
+            # Keeps total runtime close to time_limit instead of overrunning on a
+            # slow model such as multiclass GradientBoosting.
             iter_candidates = {}
             for name, base_model in base_candidates.items():
+                est = model_times.get(name, _estimate_cost(name, n_fit, n_classes))
+                if est > remaining:
+                    continue
                 try:
                     params = param_space.get(name, lambda: {})()
                     iter_candidates[name] = _rebuild_model(base_model, params)
                 except Exception:
                     iter_candidates[name] = base_model
+
+            # Guarantee at least one fitted model even under a very tight budget.
+            if not iter_candidates:
+                if best_per_model:
+                    break
+                cheapest = min(base_candidates, key=lambda n: _estimate_cost(n, n_fit, n_classes))
+                iter_candidates[cheapest] = base_candidates[cheapest]
 
             results = Parallel(n_jobs=self.n_jobs, prefer="threads")(
                 delayed(_train_and_score)(
@@ -297,9 +343,10 @@ class AutoClassifier:
 
             for name, model, score, elapsed_t in results:
                 if model is not None:
-                    prev_score, _ = best_per_model.get(name, (-np.inf, None))
-                    if score > prev_score:
-                        best_per_model[name] = (score, model)
+                    model_times[name] = elapsed_t
+                    prev = best_per_model.get(name)
+                    if prev is None or score > prev[0]:
+                        best_per_model[name] = (score, model, elapsed_t)
                     if score > self.best_score_:
                         self.best_score_ = score
                         self.best_model_ = model
@@ -307,10 +354,10 @@ class AutoClassifier:
 
         sys.stdout.write("\n")  # end progress line
 
-        # Build final leaderboard from best seen per model
+        # Build final leaderboard from best seen per model (with real fit time)
         self._leaderboard = [
-            {"model": name, "score": round(score, 4), "time_s": round(self.time_limit, 1)}
-            for name, (score, _) in sorted(best_per_model.items(), key=lambda x: x[1][0], reverse=True)
+            {"model": name, "score": round(score, 4), "time_s": round(fit_time, 3)}
+            for name, (score, _, fit_time) in sorted(best_per_model.items(), key=lambda x: x[1][0], reverse=True)
         ]
 
         reason = ModelOptimizer.recommend_reason(self.best_model_name_, {})
@@ -369,11 +416,13 @@ class AutoRegressor:
     """
 
     def __init__(self, metric: str = "rmse", time_limit: int = 120,
-                 dataset_tier: str = "auto", n_jobs: int = -1):
+                 dataset_tier: str = "auto", n_jobs: int = -1,
+                 random_state: int = 42):
         self.metric = metric
         self.time_limit = time_limit
         self.dataset_tier = dataset_tier
         self.n_jobs = n_jobs
+        self.random_state = random_state
         self.best_model_ = None
         self.best_model_name_ = None
         self.best_score_ = -np.inf
@@ -381,6 +430,10 @@ class AutoRegressor:
 
     def fit(self, X_train, y_train, X_val=None, y_val=None):
         """Train models iteratively using random search until the time budget is exhausted."""
+        ensure_utf8_console()
+        if self.random_state is not None:
+            random.seed(self.random_state)
+            np.random.seed(self.random_state)
         n_samples = len(X_train)
         tier = self.dataset_tier
         if tier == "auto":
@@ -391,15 +444,17 @@ class AutoRegressor:
         if X_val is None:
             from sklearn.model_selection import train_test_split
             X_train, X_val, y_train, y_val = train_test_split(
-                X_train, y_train, test_size=0.2, random_state=42
+                X_train, y_train, test_size=0.2, random_state=self.random_state
             )
 
         base_candidates = ModelOptimizer("regression", tier).get_candidate_models()
         start_time = time.time()
         deadline = start_time + self.time_limit
         param_space = _REGRESSION_PARAM_SPACE
+        n_fit = len(X_train)                       # rows models actually train on
+        model_times: dict = {}                     # name -> last observed real fit time
 
-        best_per_model: dict = {}   # name -> (score, model)
+        best_per_model: dict = {}   # name -> (score, model, fit_time)
         iteration = 0
 
         logger.info(f"  Searching {len(base_candidates)} models via random hyper-param search (budget={self.time_limit}s)...")
@@ -409,16 +464,30 @@ class AutoRegressor:
             iteration += 1
             elapsed = time.time() - start_time
             _print_progress(elapsed, self.time_limit, iteration, self.best_score_, self.metric)
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
 
-            # Build fresh candidates with random hyper-params
+            # Admission control: only launch models expected to finish within the
+            # remaining budget (learned time if seen, else a conservative estimate),
+            # so the search stays close to time_limit instead of overrunning.
             iter_candidates = {}
             for name, base_model in base_candidates.items():
+                est = model_times.get(name, _estimate_cost(name, n_fit))
+                if est > remaining:
+                    continue
                 try:
                     params = param_space.get(name, lambda: {})()
-                    model_copy = base_model.__class__(**{**base_model.get_params(), **params})
-                    iter_candidates[name] = model_copy
+                    iter_candidates[name] = base_model.__class__(**{**base_model.get_params(), **params})
                 except Exception:
                     iter_candidates[name] = base_model
+
+            # Guarantee at least one fitted model even under a very tight budget.
+            if not iter_candidates:
+                if best_per_model:
+                    break
+                cheapest = min(base_candidates, key=lambda n: _estimate_cost(n, n_fit))
+                iter_candidates[cheapest] = base_candidates[cheapest]
 
             results = Parallel(n_jobs=self.n_jobs, prefer="threads")(
                 delayed(_train_and_score)(
@@ -429,9 +498,10 @@ class AutoRegressor:
 
             for name, model, score, elapsed_t in results:
                 if model is not None:
-                    prev_score, _ = best_per_model.get(name, (-np.inf, None))
-                    if score > prev_score:
-                        best_per_model[name] = (score, model)
+                    model_times[name] = elapsed_t
+                    prev = best_per_model.get(name)
+                    if prev is None or score > prev[0]:
+                        best_per_model[name] = (score, model, elapsed_t)
                     if score > self.best_score_:
                         self.best_score_ = score
                         self.best_model_ = model
@@ -439,10 +509,10 @@ class AutoRegressor:
 
         sys.stdout.write("\n")  # end progress line
 
-        # Build final leaderboard from best seen per model
+        # Build final leaderboard from best seen per model (with real fit time)
         self._leaderboard = [
-            {"model": name, "score": round(score, 4), "time_s": round(self.time_limit, 1)}
-            for name, (score, _) in sorted(best_per_model.items(), key=lambda x: x[1][0], reverse=True)
+            {"model": name, "score": round(score, 4), "time_s": round(fit_time, 3)}
+            for name, (score, _, fit_time) in sorted(best_per_model.items(), key=lambda x: x[1][0], reverse=True)
         ]
 
         logger.info(f"\n  ✅ Best: {self.best_model_name_} | {self.metric}={self.best_score_:.4f}")

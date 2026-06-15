@@ -89,7 +89,7 @@ engine.leaderboard()
 | 📊 **Intelligent Profiler** | Detects classification vs regression & profiles correlation/skewness |
 | ⚙️ **Smart Pipeline** | Auto Label-Encoding & OneHot features instantly |
 | 📦 **Memory Optimizer** | Downcasts int64/float64 seamlessly for massive datasets |
-| ⏱️ **Hard Deadline** | `time_limit=60` strictly stops processing to save compute costs |
+| ⏱️ **Time Budget** | `time_limit=60` caps the search — models predicted to exceed the remaining budget are skipped, so training stays close to the limit |
 | 📈 **One-Figure Dashboard** | Dark-themed ROC, Confusion Matrix, & Leaderboards plotted entirely in one frame! |
 | 💾 **Safe Versioning** | Instantly saves your `.pkl` and `.json` metadata on successful train |
 

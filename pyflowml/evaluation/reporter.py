@@ -10,6 +10,7 @@ from sklearn.metrics import (
     mean_absolute_error, mean_squared_error, r2_score,
 )
 from pyflowml.monitoring.logger import get_logger
+from pyflowml.utils.console import ensure_utf8_console
 
 logger = get_logger("Reporter")
 
@@ -46,6 +47,7 @@ class Reporter:
     @staticmethod
     def classification(model, X_test, y_test, print_report: bool = True) -> dict:
         """Print and return classification metrics."""
+        ensure_utf8_console()
         y_pred = model.predict(X_test)
         avg = Reporter._resolve_average(y_test)
 
@@ -76,6 +78,7 @@ class Reporter:
     @staticmethod
     def regression(model, X_test, y_test, print_report: bool = True) -> dict:
         """Print and return regression metrics."""
+        ensure_utf8_console()
         y_pred = model.predict(X_test)
         metrics = {
             "MAE": round(mean_absolute_error(y_test, y_pred), 4),

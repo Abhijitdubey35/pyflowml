@@ -79,6 +79,9 @@ db.sqlite3-journal
 
 # PyFlowML specific data
 saved_models/
+pyflowml_cache/
+reports/
+implementation_plan_pyflowml
 *.csv
 *.pkl
 *.json

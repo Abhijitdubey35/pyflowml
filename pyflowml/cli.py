@@ -189,7 +189,6 @@ def _render_dashboard(df, raw_file, model, X_train_t, X_test_t,
     import numpy as np
     import pandas as pd
     import matplotlib
-    matplotlib.use("TkAgg") if False else None   # keep current backend
     import matplotlib.pyplot as plt
     import matplotlib.gridspec as gridspec
     import seaborn as sns
@@ -535,7 +534,7 @@ def run_pipeline(file_path: str, target: str, metric: str = "auto",
     if save:
         base_name = os.path.splitext(os.path.basename(file_path))[0]
         model_name = f"{base_name}_{problem_type}_model"
-        saved_path = ModelSaver.save(model, model_name, metadata={
+        saved_path = ModelSaver.save(model, model_name, pipeline=pipe, metadata={
             "file": file_path,
             "target": target,
             "problem_type": problem_type,
@@ -551,11 +550,105 @@ def run_pipeline(file_path: str, target: str, metric: str = "auto",
     return model
 
 
-# ─── Entry point ──────────────────────────────────────────────────────────────
+# ─── Sub-command handlers ─────────────────────────────────────────────────────
 
-def parse_args():
+def _default_out(path: str, suffix: str) -> str:
+    base, _ = os.path.splitext(path)
+    return base + suffix
+
+
+def cmd_profile(args):
+    """`pyflowml profile` — print the dataset profile and exit."""
+    from pyflowml.core.profiler import DataProfiler
+    df = load_file(args.file)
+    target = args.target if args.target else prompt_target(df)
+    if target not in df.columns:
+        print(c(f"\n  ✖  Target column '{target}' not in dataset.", RED))
+        sys.exit(1)
+    profiler = DataProfiler(df, target=target)
+    profiler.run()
+    profiler.report()
+
+
+def cmd_clean(args):
+    """`pyflowml clean` — clean a dataset and write a new CSV."""
+    import numpy as np
+    from pyflowml.data.cleaner import DataCleaner
+    df = load_file(args.file)
+    before = df.shape
+    cleaner = DataCleaner(df).normalize_text().handle_nulls().remove_duplicates()
+    if args.drop_outliers:
+        cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        if args.target in cols:
+            cols.remove(args.target)  # never drop rows based on the target column
+        cleaner.remove_outliers(columns=cols)
+    cleaned = cleaner.result()
+    dest = args.out if args.out else _default_out(args.file, "_clean.csv")
+    cleaned.to_csv(dest, index=False)
+    print(c(f"\n  ✔  Cleaned {before[0]}×{before[1]} → {cleaned.shape[0]}×{cleaned.shape[1]}", GREEN))
+    print(c(f"  ✅  Saved → {dest}\n", GREEN + BOLD))
+
+
+def cmd_viz(args):
+    """`pyflowml viz` — exploratory plots only (no training)."""
+    from pyflowml.visualization.plotter import Plotter
+    df = load_file(args.file)
+    print(c("\n  📈  Generating EDA plots… (close each window to continue)", CYAN))
+    Plotter.correlation_heatmap(df)
+    Plotter.missing_values(df)
+    if args.target and args.target in df.columns:
+        Plotter.distribution(df, column=args.target)
+    print(c("\n  ✔  Done.\n", GREEN))
+
+
+def cmd_train(args):
+    """`pyflowml train` — train + save a model, skipping the dashboard."""
+    df = load_file(args.file)
+    target = args.target if args.target else prompt_target(df)
+    run_pipeline(
+        file_path  = args.file,
+        target     = target,
+        metric     = args.metric,
+        time_limit = args.time,
+        visualise  = False,
+        save       = not args.no_save,
+    )
+
+
+def cmd_predict(args):
+    """`pyflowml predict` — predict on new data using a saved model bundle."""
+    from pyflowml.utils.saver import ModelSaver
+    df = load_file(args.file)
+    payload = ModelSaver.load(args.model)
+    preds = ModelSaver.predict(payload, df)
+    out_df = df.copy()
+    out_df["prediction"] = preds
+    if args.out:
+        out_df.to_csv(args.out, index=False)
+        print(c(f"\n  ✅  {len(preds)} predictions saved → {args.out}\n", GREEN + BOLD))
+    else:
+        print(c(f"\n  ✔  Predictions (first 10 of {len(preds)}):", GREEN))
+        print(out_df[["prediction"]].head(10).to_string())
+        print()
+
+
+# ─── Argument parsing & dispatch ──────────────────────────────────────────────
+
+_SUBCOMMANDS = {"profile", "clean", "viz", "train", "predict"}
+
+
+def parse_args(argv=None):
+    """Parser for the full pipeline — bare `pyflowml` or `pyflowml --file ...`."""
     parser = argparse.ArgumentParser(
-        description="PyFlowML — Run AutoML on any CSV or JSON file",
+        prog="pyflowml",
+        description="PyFlowML — Run AutoML on any CSV or JSON file.",
+        epilog=("Sub-commands (run `pyflowml <command> -h` for each):\n"
+                "  profile  <file> [target]           profile a dataset\n"
+                "  clean    <file> [-o out.csv]        clean a dataset, write a CSV\n"
+                "  viz      <file> [target]            exploratory plots only\n"
+                "  train    <file> [target] [-T 60]    train + save a model\n"
+                "  predict  <model> <file> [-o out]    predict on new data\n\n"
+                "Run `pyflowml` with no arguments for the full interactive pipeline."),
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument("--file",   "-f", type=str, help="Path to CSV or JSON file")
@@ -566,12 +659,63 @@ def parse_args():
                         help="Training time budget in seconds (default: 120)")
     parser.add_argument("--no-viz", action="store_true", help="Skip visualisation")
     parser.add_argument("--no-save", action="store_true", help="Skip model saving")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main():
+def _build_subparser():
+    """Parser for the focused sub-commands (profile/clean/viz/train/predict)."""
+    p = argparse.ArgumentParser(
+        prog="pyflowml",
+        description="PyFlowML sub-commands. Run `pyflowml` alone for the full interactive pipeline.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    sub = p.add_subparsers(dest="command", required=True,
+                           metavar="{profile,clean,viz,train,predict}")
+
+    sp = sub.add_parser("profile", help="Profile a dataset (type, missing, skew, correlations)")
+    sp.add_argument("file", help="Path to CSV or JSON file")
+    sp.add_argument("target", nargs="?", help="Target column (prompted if omitted)")
+
+    sc = sub.add_parser("clean", help="Clean a dataset and write a new CSV")
+    sc.add_argument("file", help="Path to CSV or JSON file")
+    sc.add_argument("--out", "-o", help="Output CSV path (default: <input>_clean.csv)")
+    sc.add_argument("--target", "-t", help="Target column (excluded from outlier removal)")
+    sc.add_argument("--drop-outliers", action="store_true",
+                    help="Also remove IQR-outlier rows (target excluded)")
+
+    sv = sub.add_parser("viz", help="Exploratory plots only (correlation, missing values, distribution)")
+    sv.add_argument("file", help="Path to CSV or JSON file")
+    sv.add_argument("target", nargs="?", help="Target column to plot a distribution for")
+
+    st = sub.add_parser("train", help="Train + save a model (no dashboard)")
+    st.add_argument("file", help="Path to CSV or JSON file")
+    st.add_argument("target", nargs="?", help="Target column (prompted if omitted)")
+    st.add_argument("--metric", "-m", default="auto",
+                    help="Metric: f1|accuracy|roc_auc|rmse|r2|mae (default: auto)")
+    st.add_argument("--time", "-T", type=int, default=120,
+                    help="Training time budget in seconds (default: 120)")
+    st.add_argument("--no-save", action="store_true", help="Do not save the trained model")
+
+    spd = sub.add_parser("predict", help="Predict on new data with a saved model bundle")
+    spd.add_argument("model", help="Path to a saved .pkl model bundle")
+    spd.add_argument("file", help="CSV/JSON to predict on")
+    spd.add_argument("--out", "-o", help="Write predictions to this CSV (default: print)")
+    return p
+
+
+_DISPATCH = {
+    "profile": cmd_profile,
+    "clean":   cmd_clean,
+    "viz":     cmd_viz,
+    "train":   cmd_train,
+    "predict": cmd_predict,
+}
+
+
+def _interactive_pipeline(argv):
+    """Original behaviour: bare `pyflowml`, or `pyflowml --file ... [--target ...]`."""
     banner()
-    args = parse_args()
+    args = parse_args(argv)
 
     # ── File ────────────────────────────────────────────────────────────────
     file_path = args.file if args.file else prompt_file()
@@ -623,6 +767,20 @@ def main():
         visualise  = visualise,
         save       = save,
     )
+
+
+def main(argv=None):
+    from pyflowml.utils.console import ensure_utf8_console
+    ensure_utf8_console()  # keep emoji/box-drawing output from crashing on cp1252
+    argv = list(sys.argv[1:] if argv is None else argv)
+
+    # An explicit sub-command runs that focused tool. Anything else (no args, or
+    # the legacy --file/--target flags) falls through to the full interactive
+    # pipeline — so `pyflowml` on its own behaves exactly as before.
+    if argv and argv[0] in _SUBCOMMANDS:
+        args = _build_subparser().parse_args(argv)
+        return _DISPATCH[args.command](args)
+    return _interactive_pipeline(argv)
 
 
 if __name__ == "__main__":

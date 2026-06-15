@@ -64,24 +64,27 @@ class DataCleaner:
             return "mode"
 
     def _apply_null_strategy(self, col: str, strategy: str):
+        # NOTE: assign back rather than fillna(..., inplace=True) on a column
+        # slice — under pandas Copy-on-Write (default in 3.0) the inplace form
+        # silently does nothing and raises a ChainedAssignmentError.
         if strategy == "drop_column":
             self._df.drop(columns=[col], inplace=True)
         elif strategy == "drop_rows":
             self._df.dropna(subset=[col], inplace=True)
         elif strategy == "median":
-            self._df[col].fillna(self._df[col].median(), inplace=True)
+            self._df[col] = self._df[col].fillna(self._df[col].median())
         elif strategy == "mean":
-            self._df[col].fillna(self._df[col].mean(), inplace=True)
+            self._df[col] = self._df[col].fillna(self._df[col].mean())
         elif strategy in ("mode", "impute_mode"):
             mode_val = self._df[col].mode()
             if len(mode_val) > 0:
-                self._df[col].fillna(mode_val[0], inplace=True)
+                self._df[col] = self._df[col].fillna(mode_val[0])
         elif strategy in ("impute_median",):
-            self._df[col].fillna(self._df[col].median(), inplace=True)
+            self._df[col] = self._df[col].fillna(self._df[col].median())
         elif strategy == "ffill":
-            self._df[col].fillna(method="ffill", inplace=True)
+            self._df[col] = self._df[col].ffill()
         elif strategy == "bfill":
-            self._df[col].fillna(method="bfill", inplace=True)
+            self._df[col] = self._df[col].bfill()
 
     def remove_outliers(self, method: str = "iqr", columns: list = None,
                         multiplier: float = 1.5) -> "DataCleaner":

@@ -45,6 +45,8 @@ class PyFlowEngine:
 
     def run(self):
         """Run the complete ML pipeline end-to-end."""
+        from pyflowml.utils.console import ensure_utf8_console
+        ensure_utf8_console()
         self._start_time = time.time()
         logger.info("=" * 60)
         logger.info("  PyFlowML Engine — Starting Pipeline")
